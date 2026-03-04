@@ -2,6 +2,12 @@
 
 A Linux TUI tool for browsing GitHub issue parent/sub tree and opening issue pages.
 
+## Motivation
+
+I use GitHub Issues as my personal note system.
+On the GitHub web UI, issues are mostly presented in a flat list, which makes parent/sub issue relationships hard to read.
+This tool exists to present issue hierarchy in a clear tree view, so note structure is visible at a glance.
+
 ## Features
 
 - OAuth Device Flow login for GitHub
@@ -72,3 +78,7 @@ configs/                # example config
 - The app currently targets Linux (`xdg-open` for URL launch).
 - OAuth client id is required.
 - Token is stored at `~/.config/ghnote/token.yaml`.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=Peter33333/github-note&type=timeline&logscale&legend=top-left)](https://www.star-history.com/?repos=Peter33333%2Fgithub-note&type=timeline&legend=top-left)

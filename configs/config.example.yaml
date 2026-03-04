@@ -1,0 +1,4 @@
+client_id: your_github_oauth_client_id
+base_url: https://api.github.com
+owner: your_owner
+repo: your_repo

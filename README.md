@@ -1,5 +1,7 @@
 # ghnote
 
+![CI](https://img.shields.io/github/actions/workflow/status/Peter33333/github-note/ci.yml)
+
 A Linux TUI tool for browsing GitHub issue parent/sub tree and opening issue pages.
 
 ## Motivation

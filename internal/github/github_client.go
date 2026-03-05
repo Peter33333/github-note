@@ -1,16 +1,21 @@
 package github
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
+	"strings"
 
 	"github-note/internal/config"
 	"github-note/internal/domain"
 
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
+	"golang.org/x/term"
 )
 
 type issueNodeQuery struct {
@@ -55,8 +60,42 @@ func New(cfg *config.Config) *GitHubClient {
 func (client *GitHubClient) EnsureToken(ctx context.Context) error {
 	token, err := config.LoadToken()
 	if err == nil {
-		client.token = token
+		if err := client.validateToken(ctx, token.AccessToken); err == nil {
+			client.token = token
+			return nil
+		}
+	}
+
+	if envToken := strings.TrimSpace(os.Getenv("GH_TOKEN")); envToken != "" {
+		if err := client.validateToken(ctx, envToken); err != nil {
+			return fmt.Errorf("invalid GH_TOKEN: %w", err)
+		}
+		oauthToken := &oauth2.Token{AccessToken: envToken, TokenType: "Bearer"}
+		if err := config.SaveToken(oauthToken); err != nil {
+			return err
+		}
+		client.token = oauthToken
 		return nil
+	}
+
+	inputToken, err := promptPersonalAccessToken()
+	if err != nil {
+		return err
+	}
+	if inputToken != "" {
+		if err := client.validateToken(ctx, inputToken); err != nil {
+			return fmt.Errorf("invalid token: %w", err)
+		}
+		oauthToken := &oauth2.Token{AccessToken: inputToken, TokenType: "Bearer"}
+		if err := config.SaveToken(oauthToken); err != nil {
+			return err
+		}
+		client.token = oauthToken
+		return nil
+	}
+
+	if client.cfg.ClientID == "" {
+		return errors.New("no token provided; set GH_TOKEN or paste a personal access token")
 	}
 
 	deviceCode, err := requestDeviceCode(ctx, client.httpClient, client.cfg.ClientID)
@@ -75,6 +114,52 @@ func (client *GitHubClient) EnsureToken(ctx context.Context) error {
 		return err
 	}
 	client.token = oauthToken
+	return nil
+}
+
+func promptPersonalAccessToken() (string, error) {
+	fmt.Println("Paste GitHub Personal Access Token (recommended scope: repo).")
+	fmt.Print("Token (leave empty to use device flow if configured): ")
+
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		secret, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("read token input: %w", err)
+		}
+		return strings.TrimSpace(string(secret)), nil
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		if errors.Is(err, os.ErrClosed) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read token input: %w", err)
+	}
+	return strings.TrimSpace(line), nil
+}
+
+func (client *GitHubClient) validateToken(ctx context.Context, accessToken string) error {
+	if strings.TrimSpace(accessToken) == "" {
+		return errors.New("empty token")
+	}
+	oauthToken := &oauth2.Token{AccessToken: accessToken, TokenType: "Bearer"}
+	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(oauthToken))
+	graphqlClient := githubv4.NewClient(oauthClient)
+
+	query := struct {
+		Viewer struct {
+			Login githubv4.String
+		}
+	}{}
+	if err := graphqlClient.Query(ctx, &query, nil); err != nil {
+		return fmt.Errorf("token verification failed: %w", err)
+	}
+	if strings.TrimSpace(string(query.Viewer.Login)) == "" {
+		return errors.New("token verification failed: empty viewer login")
+	}
 	return nil
 }
 

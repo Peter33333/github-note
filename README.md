@@ -10,7 +10,9 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 
 ## Features
 
-- OAuth Device Flow login for GitHub
+- Interactive Personal Access Token login (no OAuth App required)
+- Support `GH_TOKEN` environment variable
+- Optional OAuth Device Flow fallback (when `client_id` is configured)
 - Load issue tree from a single repository
 - TUI list view with tree indentation
 - Open selected issue in system browser
@@ -32,10 +34,15 @@ go build -o ghnote ./cmd/ghnote
 3. Edit config file at `~/.config/ghnote/config.yaml`:
 
 ```yaml
-client_id: your_github_oauth_client_id
 base_url: https://api.github.com
 owner: your_owner
 repo: your_repo
+```
+
+Optional (only if you want OAuth Device Flow fallback):
+
+```yaml
+client_id: your_github_oauth_client_id
 ```
 
 4. Run:
@@ -76,8 +83,35 @@ configs/                # example config
 ## Notes
 
 - The app currently targets Linux (`xdg-open` for URL launch).
-- OAuth client id is required.
+- OAuth client id is optional.
+- Recommended login: paste a GitHub Personal Access Token when prompted.
 - Token is stored at `~/.config/ghnote/token.yaml`.
+
+## Install (APT)
+
+Add GitHub Pages as an APT source:
+
+```bash
+echo "deb [trusted=yes] https://Peter33333.github.io/github-note stable main" \
+| sudo tee /etc/apt/sources.list.d/ghnote.list
+
+sudo apt update
+sudo apt install ghnote
+```
+
+## Release Pipeline
+
+- CI: `.github/workflows/ci.yml` runs `go test ./...` on push/PR.
+- Release: `.github/workflows/release.yml` runs on tags like `v1.0.0`.
+- Packaging: `.goreleaser.yaml` builds Linux binaries and `.deb` packages.
+- APT repo publishing: `scripts/update-apt-repo.sh` regenerates `Packages` and `Release` in `gh-pages`.
+
+To release a new version:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ## Star History
 

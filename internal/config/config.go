@@ -17,7 +17,7 @@ const (
 
 // Config keeps runtime settings for ghnote.
 type Config struct {
-	ClientID string `yaml:"client_id"`
+	ClientID string `yaml:"client_id,omitempty"`
 	BaseURL  string `yaml:"base_url"`
 	Owner    string `yaml:"owner"`
 	Repo     string `yaml:"repo"`
@@ -73,9 +73,6 @@ func Load(configPath string) (*Config, error) {
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv("GHNOTE_GITHUB_CLIENT_ID")
 	}
-	if cfg.ClientID == "" {
-		return nil, errors.New("missing github oauth client_id, set config.client_id or GHNOTE_GITHUB_CLIENT_ID")
-	}
 	if cfg.Owner == "" || cfg.Repo == "" {
 		return nil, errors.New("missing owner/repo in config file")
 	}
@@ -84,10 +81,9 @@ func Load(configPath string) (*Config, error) {
 
 func SaveExample(path string) error {
 	example := Config{
-		ClientID: "your_github_oauth_client_id",
-		BaseURL:  "https://api.github.com",
-		Owner:    "your_owner",
-		Repo:     "your_repo",
+		BaseURL: "https://api.github.com",
+		Owner:   "your_owner",
+		Repo:    "your_repo",
 	}
 	content, err := yaml.Marshal(example)
 	if err != nil {

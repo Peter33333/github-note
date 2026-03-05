@@ -1,0 +1,43 @@
+version: 2
+
+project_name: ghnote
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ghnote
+    main: ./cmd/ghnote
+    binary: ghnote
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+nfpms:
+  - id: ghnote
+    package_name: ghnote
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+    vendor: Peter33333
+    homepage: https://github.com/Peter33333/github-note
+    maintainer: Peter33333
+    description: GitHub issue tree TUI for hierarchical note browsing.
+    license: MIT
+    formats:
+      - deb
+    bindir: /usr/bin
+    contents:
+      - src: ./configs/config.example.yaml
+        dst: /etc/ghnote/config.example.yaml
+        type: config|noreplace
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+changelog:
+  use: github

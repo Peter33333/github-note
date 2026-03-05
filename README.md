@@ -1,6 +1,6 @@
 # ghnote
 
-![CI](https://img.shields.io/github/actions/workflow/status/Peter33333/github-note/ci.yml)
+![CI](https://img.shields.io/github/actions/workflow/status/Peter33333/github-note/ci.yml) ![GitHub Release](https://img.shields.io/github/v/release/Peter33333/github-note?display_name=tag) ![GitHub Release Date](https://img.shields.io/github/release-date/Peter33333/github-note?display_date=created_at)
 
 A Linux TUI tool for browsing GitHub issue parent/sub tree and opening issue pages.
 

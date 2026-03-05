@@ -19,18 +19,42 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 - TUI list view with tree indentation
 - Open selected issue in system browser
 
+## UI Preview
+
+![ghnote UI screenshot](https://upload.cc/i1/2026/03/05/tvoMja.png)
+
 ## Quick Start
 
-1. Build:
+1. Install via APT:
 
 ```bash
-go build -o ghnote ./cmd/ghnote
+curl -fsSL https://Peter33333.github.io/github-note/gpg.key | \
+sudo gpg --dearmor -o /usr/share/keyrings/ghnote-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/ghnote-keyring.gpg] https://Peter33333.github.io/github-note stable main" | \
+sudo tee /etc/apt/sources.list.d/ghnote.list
+
+sudo apt update
+sudo apt install ghnote
+```
+
+Or install by downloading the binary directly:
+
+```bash
+VERSION="$(curl -fsSL https://api.github.com/repos/Peter33333/github-note/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 | sed 's/^v//')"
+ARCH="amd64" # change to arm64 if needed
+
+curl -fsSL -o ghnote.tar.gz \
+	"https://github.com/Peter33333/github-note/releases/download/v${VERSION}/ghnote_${VERSION}_linux_${ARCH}.tar.gz"
+
+tar -xzf ghnote.tar.gz
+sudo install -m 0755 ghnote /usr/local/bin/ghnote
 ```
 
 2. Create config template:
 
 ```bash
-./ghnote --init-config
+ghnote --init-config
 ```
 
 3. Edit config file at `~/.config/ghnote/config.yaml`:
@@ -50,14 +74,22 @@ client_id: your_github_oauth_client_id
 4. Run:
 
 ```bash
-./ghnote
+ghnote
 ```
 
 If your config is inside project folder:
 
 ```bash
-./ghnote --config ./configs/config.yaml
+ghnote --config ./configs/config.yaml
 ```
+
+### Basic Usage Tips
+
+- First login: paste a GitHub Personal Access Token when prompted.
+- Navigation: use `j`/`k` (or arrow keys) to move the cursor.
+- Tree control: use `h`/`left` to collapse, `l`/`right` to expand, `space` to toggle.
+- Open issue: press `enter` to open the selected issue in your browser.
+- Fast retry: when auth or repo config changes, rerun `ghnote` directly.
 
 ## Key Bindings
 

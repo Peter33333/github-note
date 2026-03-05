@@ -1,0 +1,16 @@
+Package: ghnote
+Version: 0.0.2
+Architecture: amd64
+Maintainer: Peter33333
+Installed-Size: 7488
+Filename: pool/main/g/ghnote/ghnote_0.0.2_amd64.deb
+Size: 3161780
+MD5sum: 97688465100fdff83311c93717d2ddbb
+SHA1: db5b9d924cb94418035f9dfc49e03125fec715b3
+SHA256: cae577b7ce1c4f80f5520ddebef0b5f3bab089fd8ad83ca5c886907f47404608
+Priority: optional
+Homepage: https://github.com/Peter33333/github-note
+Description: GitHub issue tree TUI for hierarchical note browsing.
+Architecture-Variant: amd64v1
+License: MIT
+

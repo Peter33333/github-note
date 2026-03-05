@@ -21,7 +21,7 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 
 ## UI Preview
 
-![ghnote UI screenshot](https://upload.cc/i1/2026/03/05/tvoMja.png)
+![ghnote UI screenshot](https://upload.cc/i1/2026/03/05/6aIkU3.png)
 
 ## Quick Start
 

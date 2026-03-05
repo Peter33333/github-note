@@ -36,25 +36,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
-        continue-on-error: true
-
-      - name: Prepare gh-pages workspace
+      - name: Prepare APT publish directory
         run: |
-          if [ ! -d gh-pages/.git ]; then
-            mkdir -p gh-pages
-            pushd gh-pages
-            git init
-            git checkout -b gh-pages
-            popd
-          fi
-
-      - name: Update APT repository indexes
-        run: |
+          mkdir -p gh-pages
           chmod +x scripts/update-apt-repo.sh
           ./scripts/update-apt-repo.sh "$PWD/gh-pages" "$PWD/dist"
 
@@ -64,4 +48,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./gh-pages
           publish_branch: gh-pages
-          force_orphan: false
+          force_orphan: true

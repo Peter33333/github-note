@@ -94,8 +94,11 @@ configs/                # example config
 Add GitHub Pages as an APT source:
 
 ```bash
-echo "deb [trusted=yes] https://Peter33333.github.io/github-note stable main" \
-| sudo tee /etc/apt/sources.list.d/ghnote.list
+curl -fsSL https://Peter33333.github.io/github-note/gpg.key | \
+sudo gpg --dearmor -o /usr/share/keyrings/ghnote-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/ghnote-keyring.gpg] https://Peter33333.github.io/github-note stable main" | \
+sudo tee /etc/apt/sources.list.d/ghnote.list
 
 sudo apt update
 sudo apt install ghnote
@@ -106,7 +109,12 @@ sudo apt install ghnote
 - CI: `.github/workflows/ci.yml` runs `go test ./...` on push/PR.
 - Release: `.github/workflows/release.yml` runs on tags like `v1.0.0`.
 - Packaging: `.goreleaser.yaml` builds Linux binaries and `.deb` packages.
-- APT repo publishing: `scripts/update-apt-repo.sh` regenerates `Packages` and `Release` in `gh-pages`.
+- APT repo publishing: `morph027/apt-repo-action@v3` creates a signed apt repository and deploys via GitHub Pages.
+
+Required GitHub Secrets:
+
+- `APT_SIGNING_KEY`: ASCII armored private GPG key
+- `APT_SIGNING_KEY_PASSPHRASE`: passphrase for the private key
 
 To release a new version:
 

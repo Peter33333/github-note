@@ -7,10 +7,21 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+env:
+  REPO_NAME: ghnote
+  CODENAME: stable
+  SUITE: stable
+  COMPONENTS: main
+  ARCHITECTURES: amd64 arm64
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      keyring: ${{ steps.create-apt-repo.outputs.keyring }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,10 +33,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install packaging tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Goreleaser
         uses: goreleaser/goreleaser-action@v6
@@ -36,16 +45,46 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare APT publish directory
-        run: |
-          mkdir -p gh-pages
-          chmod +x scripts/update-apt-repo.sh
-          ./scripts/update-apt-repo.sh "$PWD/gh-pages" "$PWD/dist"
-
-      - name: Publish APT repository to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Create APT repository
+        id: create-apt-repo
+        uses: morph027/apt-repo-action@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./gh-pages
-          publish_branch: gh-pages
-          force_orphan: true
+          repo-name: ${{ env.REPO_NAME }}
+          scan-dir: ${{ github.workspace }}/dist
+          suite: ${{ env.SUITE }}
+          codename: ${{ env.CODENAME }}
+          components: ${{ env.COMPONENTS }}
+          architectures: ${{ env.ARCHITECTURES }}
+          signing-key: ${{ secrets.APT_SIGNING_KEY }}
+          signing-key-passphrase: ${{ secrets.APT_SIGNING_KEY_PASSPHRASE }}
+          import-from-repo-url: |
+            deb-amd64 https://Peter33333.github.io/github-note/ ${{ env.CODENAME }} ${{ env.COMPONENTS }}
+            deb-arm64 https://Peter33333.github.io/github-note/ ${{ env.CODENAME }} ${{ env.COMPONENTS }}
+          import-from-repo-failure-allow: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages
+          path: ${{ steps.create-apt-repo.outputs.dir }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Print install commands
+        run: |
+          echo '### APT install' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo 'curl -fsSL ${{ steps.deployment.outputs.page_url }}gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/${{ needs.build.outputs.keyring }}.gpg' >> "$GITHUB_STEP_SUMMARY"
+          echo 'echo "deb [signed-by=/usr/share/keyrings/${{ needs.build.outputs.keyring }}.gpg] ${{ steps.deployment.outputs.page_url }} ${{ env.CODENAME }} ${{ env.COMPONENTS }}" | sudo tee /etc/apt/sources.list.d/${{ env.REPO_NAME }}.list' >> "$GITHUB_STEP_SUMMARY"
+          echo 'sudo apt update && sudo apt install ghnote' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

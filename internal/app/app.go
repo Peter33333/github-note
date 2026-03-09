@@ -10,12 +10,15 @@ import (
 	"strings"
 
 	"github-note/internal/config"
+	"github-note/internal/domain"
 	"github-note/internal/github"
 	"github-note/internal/open"
 	"github-note/internal/tui"
 
 	"golang.org/x/term"
 )
+
+const defaultPageSize = 100
 
 type options struct {
 	ConfigPath string
@@ -57,12 +60,16 @@ func Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("authenticate github: %w", err)
 	}
 
-	tree, err := client.LoadIssueTree(ctx, cfg.Owner, cfg.Repo)
+	tree, hasNext, err := client.LoadIssuePage(ctx, cfg.Owner, cfg.Repo, 1, defaultPageSize)
 	if err != nil {
 		return fmt.Errorf("load issue tree: %w", err)
 	}
 
-	model := tui.New(tree, open.URL)
+	loadPage := func(page int) (*domain.IssueTree, bool, error) {
+		return client.LoadIssuePage(context.Background(), cfg.Owner, cfg.Repo, page, defaultPageSize)
+	}
+
+	model := tui.New(tree, open.URL, 1, hasNext, loadPage)
 	if err := tui.Run(model); err != nil {
 		return fmt.Errorf("run tui: %w", err)
 	}
@@ -101,24 +108,14 @@ func runConfigWizard(path string) error {
 	fmt.Println("Config file not found. Starting interactive setup.")
 	reader := bufio.NewReader(os.Stdin)
 
-	owner, err := promptRequired(reader, "GitHub owner")
-	if err != nil {
-		return err
-	}
-	repo, err := promptRequired(reader, "Repository name")
-	if err != nil {
-		return err
-	}
-	clientID, err := promptOptional(reader, "OAuth client_id (optional, press Enter to skip)")
+	repository, err := promptRequired(reader, "Repository (owner/repo or github url)")
 	if err != nil {
 		return err
 	}
 
 	cfg := &config.Config{
-		BaseURL:  "https://api.github.com",
-		Owner:    owner,
-		Repo:     repo,
-		ClientID: clientID,
+		BaseURL:    "https://api.github.com",
+		Repository: repository,
 	}
 	if err := config.Save(path, cfg); err != nil {
 		return err
@@ -141,15 +138,6 @@ func promptRequired(reader *bufio.Reader, label string) (string, error) {
 		}
 		return value, nil
 	}
-}
-
-func promptOptional(reader *bufio.Reader, label string) (string, error) {
-	fmt.Printf("%s: ", label)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("read optional input: %w", err)
-	}
-	return strings.TrimSpace(line), nil
 }
 
 func isInteractiveTerminal() bool {

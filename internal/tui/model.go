@@ -24,6 +24,8 @@ type Model struct {
 	flat      []flatNode
 	cursor    int
 	offset    int
+	page      int
+	hasNext   bool
 	width     int
 	height    int
 	quitting  bool
@@ -32,6 +34,7 @@ type Model struct {
 	showHelp  bool
 	collapsed map[string]bool
 	openIssue func(url string) error
+	loadPage  func(page int) (*domain.IssueTree, bool, error)
 
 	root        lipgloss.Style
 	headerBar   lipgloss.Style
@@ -57,11 +60,14 @@ type Model struct {
 	footerErr  lipgloss.Style
 }
 
-func New(tree *domain.IssueTree, openIssue func(url string) error) *Model {
+func New(tree *domain.IssueTree, openIssue func(url string) error, page int, hasNext bool, loadPage func(page int) (*domain.IssueTree, bool, error)) *Model {
 	model := &Model{
 		tree:      tree,
 		openIssue: openIssue,
 		collapsed: make(map[string]bool),
+		page:      max(1, page),
+		hasNext:   hasNext,
+		loadPage:  loadPage,
 		status:    "Ready",
 		root: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -182,6 +188,10 @@ func (model *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			model.cursor = clamp(model.cursor+step, 0, max(0, len(model.flat)-1))
 			model.ensureCursorVisible()
 			model.status = model.selectionStatus()
+		case "]", "n":
+			model.goNextPage()
+		case "[", "p":
+			model.goPrevPage()
 		case "left", "h":
 			model.collapseCurrent()
 		case "right", "l":
@@ -241,7 +251,7 @@ func (model *Model) View() string {
 func (model *Model) renderHeader(width int) string {
 	innerWidth := max(1, width-model.headerBar.GetHorizontalFrameSize())
 	title := model.headerTitle.Render("GHNOTE")
-	meta := model.headerMeta.Render(fmt.Sprintf("items:%d  selected:%d/%d", len(model.flat), model.cursor+1, max(1, len(model.flat))))
+	meta := model.headerMeta.Render(fmt.Sprintf("page:%d  items:%d  selected:%d/%d", model.page, len(model.flat), model.cursor+1, max(1, len(model.flat))))
 	line := truncateToWidth(fmt.Sprintf("%s  %s", title, meta), innerWidth)
 	return model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(line)
 }
@@ -363,7 +373,7 @@ func (model *Model) renderFooterLines(width int) []string {
 		statusLine = model.footerErr.Render("Error: " + model.err.Error())
 	}
 
-	hintLine := model.footerHint.Render("j/k:move  h/l:fold  space:toggle  enter:open  g/G:top/bottom  pgup/pgdown:page  ?:help  q:quit")
+	hintLine := model.footerHint.Render("j/k:move  h/l:fold  space:toggle  [/]:prev/next page  enter:open  g/G:top/bottom  pgup/pgdown:scroll  ?:help  q:quit")
 	lines := []string{
 		model.footerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(statusLine, innerWidth)),
 		model.footerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(hintLine, innerWidth)),
@@ -377,10 +387,66 @@ func (model *Model) renderFooterLines(width int) []string {
 
 func (model *Model) selectionStatus() string {
 	if len(model.flat) == 0 {
-		return "No issues"
+		if model.hasNext {
+			return fmt.Sprintf("Page %d: No issues in current page (has next)", model.page)
+		}
+		return fmt.Sprintf("Page %d: No issues", model.page)
 	}
 	node := model.flat[model.cursor].Node
-	return fmt.Sprintf("Selected #%d (%d/%d)", node.Number, model.cursor+1, len(model.flat))
+	return fmt.Sprintf("Page %d  Selected #%d (%d/%d)", model.page, node.Number, model.cursor+1, len(model.flat))
+}
+
+func (model *Model) goNextPage() {
+	if !model.hasNext {
+		model.status = fmt.Sprintf("Already at last page (%d)", model.page)
+		return
+	}
+	if model.loadPage == nil {
+		model.status = "Page loader is not available"
+		return
+	}
+	target := model.page + 1
+	tree, hasNext, err := model.loadPage(target)
+	if err != nil {
+		model.err = err
+		model.status = fmt.Sprintf("Load page %d failed", target)
+		return
+	}
+	model.applyPage(target, hasNext, tree)
+	model.status = fmt.Sprintf("Loaded page %d", target)
+	model.err = nil
+}
+
+func (model *Model) goPrevPage() {
+	if model.page <= 1 {
+		model.status = "Already at first page"
+		return
+	}
+	if model.loadPage == nil {
+		model.status = "Page loader is not available"
+		return
+	}
+	target := model.page - 1
+	tree, hasNext, err := model.loadPage(target)
+	if err != nil {
+		model.err = err
+		model.status = fmt.Sprintf("Load page %d failed", target)
+		return
+	}
+	model.applyPage(target, hasNext, tree)
+	model.status = fmt.Sprintf("Loaded page %d", target)
+	model.err = nil
+}
+
+func (model *Model) applyPage(page int, hasNext bool, tree *domain.IssueTree) {
+	model.page = max(1, page)
+	model.hasNext = hasNext
+	model.tree = tree
+	model.cursor = 0
+	model.offset = 0
+	model.collapsed = make(map[string]bool)
+	initCollapsedState(model.tree, model.collapsed)
+	model.rebuildFlat()
 }
 
 func (model *Model) collapseCurrent() {

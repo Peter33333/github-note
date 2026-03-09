@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,10 @@ const (
 
 // Config keeps runtime settings for ghnote.
 type Config struct {
-	ClientID string `yaml:"client_id,omitempty"`
-	BaseURL  string `yaml:"base_url"`
-	Owner    string `yaml:"owner"`
-	Repo     string `yaml:"repo"`
+	BaseURL    string `yaml:"base_url"`
+	Repository string `yaml:"repository,omitempty"`
+	Owner      string `yaml:"owner,omitempty"`
+	Repo       string `yaml:"repo,omitempty"`
 }
 
 func ResolveConfigDir() (string, error) {
@@ -82,22 +83,81 @@ func Load(configPath string) (*Config, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.github.com"
 	}
-	if cfg.ClientID == "" {
-		cfg.ClientID = os.Getenv("GHNOTE_GITHUB_CLIENT_ID")
+
+	repoSpec := strings.TrimSpace(cfg.Repository)
+	if repoSpec == "" && strings.TrimSpace(cfg.Owner) != "" && strings.TrimSpace(cfg.Repo) != "" {
+		repoSpec = strings.TrimSpace(cfg.Owner) + "/" + strings.TrimSpace(cfg.Repo)
 	}
-	if cfg.Owner == "" || cfg.Repo == "" {
-		return nil, errors.New("missing owner/repo in config file")
+
+	owner, repo, err := ParseRepositorySpec(repoSpec)
+	if err != nil {
+		return nil, err
 	}
+	cfg.Owner = owner
+	cfg.Repo = repo
+	cfg.Repository = owner + "/" + repo
+
 	return cfg, nil
 }
 
 func SaveExample(path string) error {
 	example := Config{
-		BaseURL: "https://api.github.com",
-		Owner:   "your_owner",
-		Repo:    "your_repo",
+		BaseURL:    "https://api.github.com",
+		Repository: "your_owner/your_repo",
 	}
 	return Save(path, &example)
+}
+
+func ParseRepositorySpec(spec string) (string, string, error) {
+	value := strings.TrimSpace(spec)
+	if value == "" {
+		return "", "", errors.New("missing repository in config file")
+	}
+
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		parsed, err := url.Parse(value)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid repository url: %w", err)
+		}
+		if !strings.EqualFold(parsed.Host, "github.com") {
+			return "", "", errors.New("repository url must use github.com")
+		}
+		parts := splitPath(parsed.Path)
+		if len(parts) < 2 {
+			return "", "", errors.New("repository url must include owner/repo")
+		}
+		return parts[0], trimRepoSuffix(parts[1]), nil
+	}
+
+	parts := splitPath(value)
+	if len(parts) != 2 {
+		return "", "", errors.New("repository must be owner/repo or a github repository url")
+	}
+	return parts[0], trimRepoSuffix(parts[1]), nil
+}
+
+func splitPath(value string) []string {
+	clean := strings.TrimSpace(value)
+	clean = strings.Trim(clean, "/")
+	if clean == "" {
+		return nil
+	}
+	parts := strings.Split(clean, "/")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func trimRepoSuffix(value string) string {
+	repo := strings.TrimSpace(value)
+	repo = strings.TrimSuffix(repo, ".git")
+	return repo
 }
 
 func Save(path string, cfg *Config) error {
@@ -110,6 +170,19 @@ func Save(path string, cfg *Config) error {
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		cfg.BaseURL = "https://api.github.com"
 	}
+	if strings.TrimSpace(cfg.Repository) == "" && strings.TrimSpace(cfg.Owner) != "" && strings.TrimSpace(cfg.Repo) != "" {
+		cfg.Repository = strings.TrimSpace(cfg.Owner) + "/" + strings.TrimSpace(cfg.Repo)
+	}
+	if strings.TrimSpace(cfg.Repository) == "" {
+		return errors.New("config repository is empty")
+	}
+	owner, repo, err := ParseRepositorySpec(cfg.Repository)
+	if err != nil {
+		return err
+	}
+	cfg.Repository = owner + "/" + repo
+	cfg.Owner = ""
+	cfg.Repo = ""
 	if err := ensureParentDir(path); err != nil {
 		return err
 	}

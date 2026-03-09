@@ -12,9 +12,9 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 
 ## Features
 
-- Interactive Personal Access Token login (no OAuth App required)
+- Optional Personal Access Token login (`Enter` to skip for public repositories)
 - Support `GH_TOKEN` environment variable
-- Optional OAuth Device Flow fallback (when `client_id` is configured)
+- Lazy loading by page (first page only on startup)
 - Load issue tree from a single repository
 - TUI list view with tree indentation
 - Open selected issue in system browser
@@ -59,9 +59,10 @@ ghnote
 
 If `~/.config/ghnote/config.yaml` does not exist, `ghnote` will start an interactive wizard and ask for:
 
-- `owner` (required)
-- `repo` (required)
-- `client_id` (optional, only needed for OAuth Device Flow fallback)
+- `repository` (required), accepts:
+	- `https://github.com/ruanyf/weekly/issues`
+	- `https://github.com/ruanyf/weekly`
+	- `ruanyf/weekly`
 
 Note: the wizard requires an interactive terminal (TTY).
 
@@ -85,9 +86,10 @@ ghnote --config ./configs/config.yaml
 
 ### Basic Usage Tips
 
-- First login: paste a GitHub Personal Access Token when prompted.
+- First login: paste a GitHub Personal Access Token when prompted, or press `Enter` for public-only mode.
 - Navigation: use `j`/`k` (or arrow keys) to move the cursor.
-- Fast navigation: use `g`/`G` for first/last item, and `pgup`/`pgdown` for page jump.
+- Page navigation: use `[`/`]` (or `p`/`n`) for previous/next issue page.
+- Fast list navigation: use `g`/`G` for first/last item, and `pgup`/`pgdown` for list scroll.
 - Tree control: use `h`/`left` to collapse, `l`/`right` to expand, `space` to toggle.
 - Open issue: press `enter` to open the selected issue in your browser.
 - Help: press `?` to toggle extended help.
@@ -99,8 +101,10 @@ ghnote --config ./configs/config.yaml
 - `k` / `up`: move cursor up
 - `g` / `home`: jump to first item
 - `G` / `end`: jump to last item
-- `pgup`: move one page up
-- `pgdown`: move one page down
+- `[`, `p`: load previous issue page
+- `]`, `n`: load next issue page
+- `pgup`: scroll one screen up
+- `pgdown`: scroll one screen down
 - `h` / `left`: collapse current node
 - `l` / `right`: expand current node
 - `space`: toggle collapse/expand
@@ -124,8 +128,8 @@ configs/                # example config
 ## Notes
 
 - The app currently targets Linux (`xdg-open` for URL launch).
-- OAuth client id is optional.
-- Recommended login: paste a GitHub Personal Access Token when prompted.
+- PAT is optional: without PAT, only public repositories are accessible.
+- For private repositories, use a GitHub Personal Access Token with `repo` scope.
 - Token is stored at `~/.config/ghnote/token.yaml`.
 
 ## Install (APT)

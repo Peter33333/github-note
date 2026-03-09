@@ -21,7 +21,7 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 
 ## UI Preview
 
-![ghnote UI screenshot](https://upload.cc/i1/2026/03/05/6aIkU3.png)
+![ghnote UI screenshot](https://upload.cc/i1/2026/03/09/hcPmd2.png)
 
 ## Quick Start
 
@@ -51,27 +51,27 @@ tar -xzf ghnote.tar.gz
 sudo install -m 0755 ghnote /usr/local/bin/ghnote
 ```
 
-2. Create config template:
+2. First run (interactive setup):
+
+```bash
+ghnote
+```
+
+If `~/.config/ghnote/config.yaml` does not exist, `ghnote` will start an interactive wizard and ask for:
+
+- `owner` (required)
+- `repo` (required)
+- `client_id` (optional, only needed for OAuth Device Flow fallback)
+
+Note: the wizard requires an interactive terminal (TTY).
+
+You can also explicitly run the wizard:
 
 ```bash
 ghnote --init-config
 ```
 
-3. Edit config file at `~/.config/ghnote/config.yaml`:
-
-```yaml
-base_url: https://api.github.com
-owner: your_owner
-repo: your_repo
-```
-
-Optional (only if you want OAuth Device Flow fallback):
-
-```yaml
-client_id: your_github_oauth_client_id
-```
-
-4. Run:
+3. Run:
 
 ```bash
 ghnote
@@ -87,18 +87,25 @@ ghnote --config ./configs/config.yaml
 
 - First login: paste a GitHub Personal Access Token when prompted.
 - Navigation: use `j`/`k` (or arrow keys) to move the cursor.
+- Fast navigation: use `g`/`G` for first/last item, and `pgup`/`pgdown` for page jump.
 - Tree control: use `h`/`left` to collapse, `l`/`right` to expand, `space` to toggle.
 - Open issue: press `enter` to open the selected issue in your browser.
+- Help: press `?` to toggle extended help.
 - Fast retry: when auth or repo config changes, rerun `ghnote` directly.
 
 ## Key Bindings
 
 - `j` / `down`: move cursor down
 - `k` / `up`: move cursor up
+- `g` / `home`: jump to first item
+- `G` / `end`: jump to last item
+- `pgup`: move one page up
+- `pgdown`: move one page down
 - `h` / `left`: collapse current node
 - `l` / `right`: expand current node
 - `space`: toggle collapse/expand
 - `enter`: open selected issue URL
+- `?`: toggle extended help
 - `q`: quit
 
 ## Project Structure

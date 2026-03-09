@@ -119,7 +119,8 @@ func (client *GitHubClient) EnsureToken(ctx context.Context) error {
 
 func promptPersonalAccessToken() (string, error) {
 	fmt.Println("Paste GitHub Personal Access Token (recommended scope: repo).")
-	fmt.Print("Token (leave empty to use device flow if configured): ")
+	fmt.Println("Generate one at: https://github.com/settings/tokens (classic token with `repo` scope).")
+	fmt.Print("Personal Access Token (leave empty to use device flow if configured): ")
 
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		secret, err := term.ReadPassword(int(os.Stdin.Fd()))

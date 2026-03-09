@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,17 @@ func EnsureConfigDir() (string, error) {
 	return dir, nil
 }
 
+func ensureParentDir(path string) error {
+	dir := filepath.Dir(path)
+	if strings.TrimSpace(dir) == "" || dir == "." {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	return nil
+}
+
 func Load(configPath string) (*Config, error) {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
@@ -85,12 +97,28 @@ func SaveExample(path string) error {
 		Owner:   "your_owner",
 		Repo:    "your_repo",
 	}
-	content, err := yaml.Marshal(example)
+	return Save(path, &example)
+}
+
+func Save(path string, cfg *Config) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("config path is empty")
+	}
+	if cfg == nil {
+		return errors.New("config is nil")
+	}
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		cfg.BaseURL = "https://api.github.com"
+	}
+	if err := ensureParentDir(path); err != nil {
+		return err
+	}
+	content, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal example config: %w", err)
+		return fmt.Errorf("marshal config: %w", err)
 	}
 	if err := os.WriteFile(path, content, 0o600); err != nil {
-		return fmt.Errorf("write example config: %w", err)
+		return fmt.Errorf("write config file: %w", err)
 	}
 	return nil
 }

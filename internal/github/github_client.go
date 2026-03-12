@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github-note/internal/config"
 	"github-note/internal/domain"
@@ -229,8 +231,22 @@ func (client *GitHubClient) loadIssuePageWithToken(ctx context.Context, owner st
 		"first": githubv4.Int(pageSize),
 		"after": after,
 	}
-	if err := graphqlClient.Query(ctx, &query, variables); err != nil {
-		return nil, false, fmt.Errorf("query issues: %w", err)
+
+	var queryErr error
+	for attempt := 1; attempt <= githubRetryMaxAttempts; attempt++ {
+		queryErr = graphqlClient.Query(ctx, &query, variables)
+		if queryErr == nil {
+			break
+		}
+		if attempt == githubRetryMaxAttempts || !isRetryableGitHubError(queryErr) {
+			break
+		}
+		if err := waitRetryBackoff(ctx, attempt); err != nil {
+			return nil, false, fmt.Errorf("query issues: %w", queryErr)
+		}
+	}
+	if queryErr != nil {
+		return nil, false, fmt.Errorf("query issues: %w", queryErr)
 	}
 
 	tree := domain.NewIssueTree()
@@ -270,16 +286,44 @@ func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner strin
 	httpClient := &http.Client{}
 	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?state=all&per_page=%d&page=%d", owner, repo, pageSize, page)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, false, fmt.Errorf("create public issues request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "ghnote")
+	var (
+		resp *http.Response
+		err  error
+	)
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, false, fmt.Errorf("request public issues: %w", err)
+	for attempt := 1; attempt <= githubRetryMaxAttempts; attempt++ {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if reqErr != nil {
+			return nil, false, fmt.Errorf("create public issues request: %w", reqErr)
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "ghnote")
+
+		resp, err = httpClient.Do(req)
+		if err != nil {
+			if attempt == githubRetryMaxAttempts || !isRetryableGitHubError(err) {
+				return nil, false, fmt.Errorf("request public issues: %w", err)
+			}
+			if waitErr := waitRetryBackoff(ctx, attempt); waitErr != nil {
+				return nil, false, fmt.Errorf("request public issues: %w", err)
+			}
+			continue
+		}
+
+		if isRetryableGitHubStatus(resp.StatusCode) {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			err = fmt.Errorf("transient status code: %d body: %q", resp.StatusCode, strings.TrimSpace(string(body)))
+			if attempt == githubRetryMaxAttempts {
+				return nil, false, fmt.Errorf("request public issues: %w", err)
+			}
+			if waitErr := waitRetryBackoff(ctx, attempt); waitErr != nil {
+				return nil, false, fmt.Errorf("request public issues: %w", err)
+			}
+			continue
+		}
+
+		break
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
@@ -370,6 +414,74 @@ func sortChildren(node *domain.IssueNode) {
 	for _, child := range node.Children {
 		sortChildren(child)
 	}
+}
+
+const (
+	githubRetryMaxAttempts = 4
+	githubRetryBaseDelay   = 400 * time.Millisecond
+	githubRetryMaxDelay    = 3 * time.Second
+)
+
+func waitRetryBackoff(ctx context.Context, attempt int) error {
+	delay := githubRetryBaseDelay
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= githubRetryMaxDelay {
+			delay = githubRetryMaxDelay
+			break
+		}
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func isRetryableGitHubStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
+}
+
+func isRetryableGitHubError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	retryHints := []string{
+		"status code: 429",
+		"status code: 500",
+		"status code: 502",
+		"status code: 503",
+		"status code: 504",
+		"bad gateway",
+		"service unavailable",
+		"temporarily unavailable",
+		"connection reset",
+		"tls handshake timeout",
+		"timeout",
+		"eof",
+	}
+	for _, hint := range retryHints {
+		if strings.Contains(msg, hint) {
+			return true
+		}
+	}
+
+	return false
 }
 
 var _ Client = (*GitHubClient)(nil)

@@ -166,6 +166,26 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+## FAQ
+
+**What license does this project use? / 本项目使用什么许可证？**
+
+This project is licensed under the [MIT License](LICENSE). You are free to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software.
+
+**Do I need to login? / 我需要登录吗？**
+
+No login is required for public repositories. When prompted for a GitHub Personal Access Token (PAT), simply press `Enter` to skip and use the tool in public-only mode. A PAT is only needed to access private repositories (use a token with `repo` scope). You can also set the `GH_TOKEN` environment variable instead of entering the token interactively.
+
+**What can this tool do? / 这个工具能做什么？**
+
+`ghnote` is a Linux TUI (terminal UI) tool for browsing GitHub Issues organized as a parent/sub-issue tree. Key features:
+
+- Browse GitHub Issues in a tree view that shows parent/sub-issue relationships at a glance
+- Navigate the issue tree with keyboard shortcuts (`j`/`k`, arrow keys, `h`/`l` for collapse/expand)
+- Open any selected issue in your system browser with `Enter`
+- Load issues page by page (lazy loading)
+- Work with public repositories without any login
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/image?repos=Peter33333/github-note&type=timeline&logscale&legend=top-left)](https://www.star-history.com/?repos=Peter33333%2Fgithub-note&type=timeline&legend=top-left)

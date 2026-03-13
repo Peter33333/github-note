@@ -191,6 +191,35 @@ func (client *GitHubClient) LoadIssuePage(ctx context.Context, owner string, rep
 	return client.loadIssuePageWithToken(ctx, owner, repo, page, pageSize)
 }
 
+func (client *GitHubClient) RefreshIssuePage(ctx context.Context, owner string, repo string, page int, pageSize int) (*domain.IssueTree, bool, error) {
+	if page < 1 {
+		return nil, false, errors.New("page must be >= 1")
+	}
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	client.resetCacheIfNeeded(owner, repo, pageSize)
+	client.pageTrees = make(map[int]*domain.IssueTree)
+	client.pageHasNext = make(map[int]bool)
+	client.nextCursor = make(map[int]string)
+
+	var (
+		tree    *domain.IssueTree
+		hasNext bool
+		err     error
+	)
+
+	for currentPage := 1; currentPage <= page; currentPage++ {
+		tree, hasNext, err = client.LoadIssuePage(ctx, owner, repo, currentPage, pageSize)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	return tree, hasNext, nil
+}
+
 func (client *GitHubClient) resetCacheIfNeeded(owner string, repo string, pageSize int) {
 	if owner == client.cacheOwner && repo == client.cacheRepo && pageSize == client.cachePageSize {
 		return

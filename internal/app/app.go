@@ -68,8 +68,11 @@ func Run(ctx context.Context, args []string) error {
 	loadPage := func(page int) (*domain.IssueTree, bool, error) {
 		return client.LoadIssuePage(context.Background(), cfg.Owner, cfg.Repo, page, defaultPageSize)
 	}
+	refreshPage := func(page int) (*domain.IssueTree, bool, error) {
+		return client.RefreshIssuePage(context.Background(), cfg.Owner, cfg.Repo, page, defaultPageSize)
+	}
 
-	model := tui.New(tree, open.URL, 1, hasNext, loadPage)
+	model := tui.New(tree, open.URL, 1, hasNext, loadPage, refreshPage)
 	if err := tui.Run(model); err != nil {
 		return fmt.Errorf("run tui: %w", err)
 	}

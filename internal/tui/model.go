@@ -12,6 +12,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+const headerASCIIArt = `_____ _ _   _____     _      _____     _       
+|   __|_| |_|  |  |_ _| |_   |   | |___| |_ ___ 
+|  |  | |  _|     | | | . |  | | | | . |  _| -_|
+|_____|_|_| |__|__|___|___|  |_|___|___|_| |___|`
+
 type flatNode struct {
 	Node        *domain.IssueNode
 	Depth       int
@@ -73,60 +78,60 @@ func New(tree *domain.IssueTree, openIssue func(url string) error, page int, has
 		status:      "Ready",
 		root: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#3D4A66")).
-			Background(lipgloss.Color("#0B1020")).
+			BorderForeground(lipgloss.Color("#4A5158")).
+			Background(lipgloss.Color("#111417")).
 			Padding(0, 0),
 		headerBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#DDE4FF")).
-			Background(lipgloss.Color("#121A2B")).
+			Foreground(lipgloss.Color("#E7E2D8")).
+			Background(lipgloss.Color("#1A1E23")).
 			Padding(0, 1),
 		headerTitle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E8EEFF")).
+			Foreground(lipgloss.Color("#F1ECE3")).
 			Bold(true),
 		headerMeta: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#95A3C7")),
+			Foreground(lipgloss.Color("#98A0A8")),
 		pane: lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#2E3A57")).
-			Background(lipgloss.Color("#0D1426")),
+			BorderForeground(lipgloss.Color("#353C44")).
+			Background(lipgloss.Color("#15191D")),
 		paneTitle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9FB4FF")).
-			Background(lipgloss.Color("#131E36")).
+			Foreground(lipgloss.Color("#C6CED6")).
+			Background(lipgloss.Color("#1D2228")).
 			Bold(true).
 			Padding(0, 1),
 		paneBody: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D8E1FF")).
-			Background(lipgloss.Color("#0D1426")),
+			Foreground(lipgloss.Color("#D8D3CB")).
+			Background(lipgloss.Color("#15191D")),
 		paneBodyMute: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D8BAD")).
-			Background(lipgloss.Color("#0D1426")),
+			Foreground(lipgloss.Color("#838A91")).
+			Background(lipgloss.Color("#15191D")),
 		treeParent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#B5C7FF")).
-			Background(lipgloss.Color("#0D1426")),
+			Foreground(lipgloss.Color("#C4CCD3")).
+			Background(lipgloss.Color("#15191D")),
 		treeLeaf: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#CFD8F6")).
-			Background(lipgloss.Color("#0D1426")),
+			Foreground(lipgloss.Color("#D3CEC5")).
+			Background(lipgloss.Color("#15191D")),
 		treeFocus: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0B1020")).
-			Background(lipgloss.Color("#8FB4FF")).
+			Foreground(lipgloss.Color("#14181C")).
+			Background(lipgloss.Color("#B7C0C8")).
 			Bold(true),
 		detailKey: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8EA3DB")).
+			Foreground(lipgloss.Color("#9BA5AF")).
 			Bold(true),
 		detailValue: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D9E2FF")),
+			Foreground(lipgloss.Color("#DDD7CE")),
 		detailHint: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D8BAD")),
+			Foreground(lipgloss.Color("#858C93")),
 		footerBar: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#DDE4FF")).
-			Background(lipgloss.Color("#121A2B")).
+			Foreground(lipgloss.Color("#E7E2D8")).
+			Background(lipgloss.Color("#1A1E23")).
 			Padding(0, 1),
 		footerInfo: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9FB4FF")),
+			Foreground(lipgloss.Color("#BCC5CD")),
 		footerHint: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D8BAD")),
+			Foreground(lipgloss.Color("#848B92")),
 		footerErr: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF8AA4")).
+			Foreground(lipgloss.Color("#D39A8E")).
 			Bold(true),
 	}
 
@@ -242,9 +247,9 @@ func (model *Model) View() string {
 	}
 
 	footerLines := model.renderFooterLines(innerWidth)
-	bodyHeight := max(5, innerHeight-1-len(footerLines))
-
 	header := model.renderHeader(innerWidth)
+	headerHeight := strings.Count(header, "\n") + 1
+	bodyHeight := max(5, innerHeight-headerHeight-len(footerLines))
 	body := model.renderBody(innerWidth, bodyHeight)
 	footer := strings.Join(footerLines, "\n")
 	content := strings.Join([]string{header, body, footer}, "\n")
@@ -254,10 +259,15 @@ func (model *Model) View() string {
 
 func (model *Model) renderHeader(width int) string {
 	innerWidth := max(1, width-model.headerBar.GetHorizontalFrameSize())
-	title := model.headerTitle.Render("GHNOTE")
+	titleLines := strings.Split(headerASCIIArt, "\n")
+	rows := make([]string, 0, len(titleLines)+1)
+	for _, line := range titleLines {
+		styled := model.headerTitle.Render(truncateToWidth(line, innerWidth))
+		rows = append(rows, model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(styled))
+	}
 	meta := model.headerMeta.Render(fmt.Sprintf("page:%d  items:%d  selected:%d/%d", model.page, len(model.flat), model.cursor+1, max(1, len(model.flat))))
-	line := truncateToWidth(fmt.Sprintf("%s  %s", title, meta), innerWidth)
-	return model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(line)
+	rows = append(rows, model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(meta, innerWidth)))
+	return strings.Join(rows, "\n")
 }
 
 func (model *Model) renderBody(width int, height int) string {
@@ -665,7 +675,8 @@ func (model *Model) innerHeight() int {
 func (model *Model) visibleTreeRows() int {
 	innerHeight := model.innerHeight()
 	footerCount := len(model.renderFooterLines(max(1, model.innerWidth())))
-	bodyHeight := max(5, innerHeight-1-footerCount)
+	headerHeight := strings.Count(model.renderHeader(max(1, model.innerWidth())), "\n") + 1
+	bodyHeight := max(5, innerHeight-headerHeight-footerCount)
 	return max(1, bodyHeight-1)
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const headerASCIIArt = `_____ _ _   _____     _      _____     _       
+const headerASCIIArt = `______ _ _   _____     _      _____     _       
 |   __|_| |_|  |  |_ _| |_   |   | |___| |_ ___ 
 |  |  | |  _|     | | | . |  | | | | . |  _| -_|
 |_____|_|_| |__|__|___|___|  |_|___|___|_| |___|`
@@ -106,10 +106,10 @@ func New(tree *domain.IssueTree, openIssue func(url string) error, page int, has
 			Foreground(lipgloss.Color("#838A91")).
 			Background(lipgloss.Color("#15191D")),
 		treeParent: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C4CCD3")).
+			Foreground(lipgloss.Color("#B9C2CB")).
 			Background(lipgloss.Color("#15191D")),
 		treeLeaf: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D3CEC5")).
+			Foreground(lipgloss.Color("#D8CFC2")).
 			Background(lipgloss.Color("#15191D")),
 		treeFocus: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#14181C")).

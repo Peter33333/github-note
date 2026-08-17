@@ -109,7 +109,7 @@ func New(tree *domain.IssueTree, openIssue func(url string) error, page int, has
 			Foreground(lipgloss.Color("#B9C2CB")).
 			Background(lipgloss.Color("#15191D")),
 		treeLeaf: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#D8CFC2")).
+			Foreground(lipgloss.Color("#C6CED6")).
 			Background(lipgloss.Color("#15191D")),
 		treeFocus: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#14181C")).

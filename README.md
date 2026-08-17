@@ -1,4 +1,4 @@
-# ghnote
+# ghnote ss
 
 [![CI](https://github.com/Peter33333/github-note/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter33333/github-note/actions/workflows/ci.yml) ![GitHub Release](https://img.shields.io/github/v/release/Peter33333/github-note?display_name=tag) ![GitHub Release Date](https://img.shields.io/github/release-date/Peter33333/github-note?display_date=created_at)
 

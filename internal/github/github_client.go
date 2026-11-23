@@ -38,11 +38,12 @@ type issueNodeQuery struct {
 	} `graphql:"parent"`
 }
 
-type issueTreeQuery struct {
+type issuePageQuery struct {
 	Repository struct {
 		Issues struct {
-			Nodes    []issueNodeQuery
-			PageInfo struct {
+			TotalCount githubv4.Int
+			Nodes      []issueNodeQuery
+			PageInfo   struct {
 				HasNextPage githubv4.Boolean
 				EndCursor   githubv4.String
 			}
@@ -66,22 +67,11 @@ type restIssue struct {
 // GitHubClient implements Client.
 type GitHubClient struct {
 	token *oauth2.Token
-
-	cacheOwner    string
-	cacheRepo     string
-	cachePageSize int
-	pageTrees     map[int]*domain.IssueTree
-	pageHasNext   map[int]bool
-	nextCursor    map[int]string
 }
 
 func New(cfg *config.Config) *GitHubClient {
 	_ = cfg
-	return &GitHubClient{
-		pageTrees:   make(map[int]*domain.IssueTree),
-		pageHasNext: make(map[int]bool),
-		nextCursor:  make(map[int]string),
-	}
+	return &GitHubClient{}
 }
 
 func (client *GitHubClient) EnsureToken(ctx context.Context) error {
@@ -172,148 +162,147 @@ func (client *GitHubClient) validateToken(ctx context.Context, accessToken strin
 	return nil
 }
 
-func (client *GitHubClient) LoadIssuePage(ctx context.Context, owner string, repo string, page int, pageSize int) (*domain.IssueTree, bool, error) {
-	if page < 1 {
-		return nil, false, errors.New("page must be >= 1")
-	}
-	if pageSize <= 0 {
-		pageSize = 100
-	}
-	client.resetCacheIfNeeded(owner, repo, pageSize)
+const (
+	defaultIssueBatchSize = 100
+	maxIssuePages         = 100
+)
 
-	if tree, ok := client.pageTrees[page]; ok {
-		return tree, client.pageHasNext[page], nil
+// LoadIssueTree fetches every issue page and returns one merged tree.
+// The second return value is the total issue count reported by GitHub.
+func (client *GitHubClient) LoadIssueTree(ctx context.Context, owner string, repo string) (*domain.IssueTree, int, error) {
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	if owner == "" || repo == "" {
+		return nil, 0, errors.New("owner and repo are required")
 	}
-
 	if client.token == nil {
-		return client.loadIssuePagePublic(ctx, owner, repo, page, pageSize)
+		return client.loadIssueTreePublic(ctx, owner, repo)
 	}
-	return client.loadIssuePageWithToken(ctx, owner, repo, page, pageSize)
+	return client.loadIssueTreeWithToken(ctx, owner, repo)
 }
 
-func (client *GitHubClient) RefreshIssuePage(ctx context.Context, owner string, repo string, page int, pageSize int) (*domain.IssueTree, bool, error) {
-	if page < 1 {
-		return nil, false, errors.New("page must be >= 1")
-	}
-	if pageSize <= 0 {
-		pageSize = 100
-	}
-
-	client.resetCacheIfNeeded(owner, repo, pageSize)
-	client.pageTrees = make(map[int]*domain.IssueTree)
-	client.pageHasNext = make(map[int]bool)
-	client.nextCursor = make(map[int]string)
-
-	var (
-		tree    *domain.IssueTree
-		hasNext bool
-		err     error
-	)
-
-	for currentPage := 1; currentPage <= page; currentPage++ {
-		tree, hasNext, err = client.LoadIssuePage(ctx, owner, repo, currentPage, pageSize)
-		if err != nil {
-			return nil, false, err
-		}
-	}
-
-	return tree, hasNext, nil
-}
-
-func (client *GitHubClient) resetCacheIfNeeded(owner string, repo string, pageSize int) {
-	if owner == client.cacheOwner && repo == client.cacheRepo && pageSize == client.cachePageSize {
-		return
-	}
-	client.cacheOwner = owner
-	client.cacheRepo = repo
-	client.cachePageSize = pageSize
-	client.pageTrees = make(map[int]*domain.IssueTree)
-	client.pageHasNext = make(map[int]bool)
-	client.nextCursor = make(map[int]string)
-}
-
-func (client *GitHubClient) loadIssuePageWithToken(ctx context.Context, owner string, repo string, page int, pageSize int) (*domain.IssueTree, bool, error) {
+func (client *GitHubClient) loadIssueTreeWithToken(ctx context.Context, owner string, repo string) (*domain.IssueTree, int, error) {
 	oauthClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(client.token))
 	graphqlClient := githubv4.NewClient(oauthClient)
 
+	tree := domain.NewIssueTree()
+	totalCount := 0
 	var after *githubv4.String
-	if page > 1 {
-		prevHasNext, ok := client.pageHasNext[page-1]
-		if !ok {
-			return nil, false, fmt.Errorf("page %d is not loaded yet; navigate sequentially with next page", page-1)
+
+	// Iterate every page so parent nodes can be resolved across page boundaries.
+	for page := 1; page <= maxIssuePages; page++ {
+		query := issuePageQuery{}
+		variables := map[string]interface{}{
+			"owner": githubv4.String(owner),
+			"repo":  githubv4.String(repo),
+			"first": githubv4.Int(defaultIssueBatchSize),
+			"after": after,
 		}
-		if !prevHasNext {
-			return nil, false, fmt.Errorf("page %d is out of range", page)
+
+		if err := queryWithRetry(ctx, graphqlClient, &query, variables); err != nil {
+			return nil, 0, fmt.Errorf("query issues page %d: %w", page, err)
 		}
-		cursor, ok := client.nextCursor[page-1]
-		if !ok || strings.TrimSpace(cursor) == "" {
-			return nil, false, fmt.Errorf("missing cursor for page %d", page)
+
+		totalCount = int(query.Repository.Issues.TotalCount)
+		for _, n := range query.Repository.Issues.Nodes {
+			tree.AddNode(issueNodeFromQuery(n))
 		}
+
+		hasNext := bool(query.Repository.Issues.PageInfo.HasNextPage)
+		cursor := string(query.Repository.Issues.PageInfo.EndCursor)
+		if !hasNext || strings.TrimSpace(cursor) == "" {
+			break
+		}
+		if totalCount > 0 && len(tree.Nodes) >= totalCount {
+			break
+		}
+
 		cursorValue := githubv4.String(cursor)
 		after = &cursorValue
 	}
 
-	query := issueTreeQuery{}
-	variables := map[string]interface{}{
-		"owner": githubv4.String(owner),
-		"repo":  githubv4.String(repo),
-		"first": githubv4.Int(pageSize),
-		"after": after,
-	}
-
-	var queryErr error
-	for attempt := 1; attempt <= githubRetryMaxAttempts; attempt++ {
-		queryErr = graphqlClient.Query(ctx, &query, variables)
-		if queryErr == nil {
-			break
-		}
-		if attempt == githubRetryMaxAttempts || !isRetryableGitHubError(queryErr) {
-			break
-		}
-		if err := waitRetryBackoff(ctx, attempt); err != nil {
-			return nil, false, fmt.Errorf("query issues: %w", queryErr)
-		}
-	}
-	if queryErr != nil {
-		return nil, false, fmt.Errorf("query issues: %w", queryErr)
-	}
-
-	tree := domain.NewIssueTree()
-	for _, n := range query.Repository.Issues.Nodes {
-		labels := make([]string, 0, len(n.Labels.Nodes))
-		for _, label := range n.Labels.Nodes {
-			labels = append(labels, string(label.Name))
-		}
-
-		node := &domain.IssueNode{
-			ID:     fmt.Sprint(n.ID),
-			Number: int(n.Number),
-			Title:  string(n.Title),
-			Labels: labels,
-			URL:    n.URL.String(),
-			State:  string(n.State),
-		}
-		if n.Parent != nil {
-			node.ParentID = fmt.Sprint(n.Parent.ID)
-		}
-		tree.AddNode(node)
-	}
 	tree.BuildRoots()
 	sortTree(tree)
-
-	hasNext := bool(query.Repository.Issues.PageInfo.HasNextPage)
-	client.pageTrees[page] = tree
-	client.pageHasNext[page] = hasNext
-	if hasNext {
-		client.nextCursor[page] = string(query.Repository.Issues.PageInfo.EndCursor)
-	}
-
-	return tree, hasNext, nil
+	return tree, totalCount, nil
 }
 
-func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner string, repo string, page int, pageSize int) (*domain.IssueTree, bool, error) {
+func queryWithRetry(ctx context.Context, graphqlClient *githubv4.Client, query interface{}, variables map[string]interface{}) error {
+	var queryErr error
+	for attempt := 1; attempt <= githubRetryMaxAttempts; attempt++ {
+		queryErr = graphqlClient.Query(ctx, query, variables)
+		if queryErr == nil {
+			return nil
+		}
+		if attempt == githubRetryMaxAttempts || !isRetryableGitHubError(queryErr) {
+			return queryErr
+		}
+		if err := waitRetryBackoff(ctx, attempt); err != nil {
+			return queryErr
+		}
+	}
+	return queryErr
+}
+
+func issueNodeFromQuery(n issueNodeQuery) *domain.IssueNode {
+	labels := make([]string, 0, len(n.Labels.Nodes))
+	for _, label := range n.Labels.Nodes {
+		labels = append(labels, string(label.Name))
+	}
+
+	node := &domain.IssueNode{
+		ID:     fmt.Sprint(n.ID),
+		Number: int(n.Number),
+		Title:  string(n.Title),
+		Labels: labels,
+		URL:    n.URL.String(),
+		State:  string(n.State),
+	}
+	if n.Parent != nil {
+		node.ParentID = fmt.Sprint(n.Parent.ID)
+	}
+	return node
+}
+
+func (client *GitHubClient) loadIssueTreePublic(ctx context.Context, owner string, repo string) (*domain.IssueTree, int, error) {
+	tree := domain.NewIssueTree()
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?state=all&per_page=%d&page=1", owner, repo, defaultIssueBatchSize)
+
+	// Follow the Link header until the last page so no issue is skipped.
+	for page := 1; page <= maxIssuePages; page++ {
+		issues, next, err := client.fetchPublicIssuesPage(ctx, owner, repo, endpoint)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, issue := range issues {
+			if issue.PullRequest != nil {
+				continue
+			}
+			labels := make([]string, 0, len(issue.Labels))
+			for _, label := range issue.Labels {
+				labels = append(labels, label.Name)
+			}
+			tree.AddNode(&domain.IssueNode{
+				ID:     fmt.Sprintf("public-%d", issue.Number),
+				Number: issue.Number,
+				Title:  issue.Title,
+				Labels: labels,
+				URL:    issue.HTMLURL,
+				State:  issue.State,
+			})
+		}
+		if strings.TrimSpace(next) == "" {
+			break
+		}
+		endpoint = next
+	}
+
+	tree.BuildRoots()
+	sortTree(tree)
+	return tree, len(tree.Nodes), nil
+}
+
+func (client *GitHubClient) fetchPublicIssuesPage(ctx context.Context, owner string, repo string, endpoint string) ([]restIssue, string, error) {
 	httpClient := &http.Client{}
-	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues?state=all&per_page=%d&page=%d", owner, repo, pageSize, page)
 
 	var (
 		resp *http.Response
@@ -323,7 +312,7 @@ func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner strin
 	for attempt := 1; attempt <= githubRetryMaxAttempts; attempt++ {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if reqErr != nil {
-			return nil, false, fmt.Errorf("create public issues request: %w", reqErr)
+			return nil, "", fmt.Errorf("create public issues request: %w", reqErr)
 		}
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("User-Agent", "ghnote")
@@ -331,10 +320,10 @@ func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner strin
 		resp, err = httpClient.Do(req)
 		if err != nil {
 			if attempt == githubRetryMaxAttempts || !isRetryableGitHubError(err) {
-				return nil, false, fmt.Errorf("request public issues: %w", err)
+				return nil, "", fmt.Errorf("request public issues: %w", err)
 			}
 			if waitErr := waitRetryBackoff(ctx, attempt); waitErr != nil {
-				return nil, false, fmt.Errorf("request public issues: %w", err)
+				return nil, "", fmt.Errorf("request public issues: %w", err)
 			}
 			continue
 		}
@@ -344,10 +333,10 @@ func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner strin
 			resp.Body.Close()
 			err = fmt.Errorf("transient status code: %d body: %q", resp.StatusCode, strings.TrimSpace(string(body)))
 			if attempt == githubRetryMaxAttempts {
-				return nil, false, fmt.Errorf("request public issues: %w", err)
+				return nil, "", fmt.Errorf("request public issues: %w", err)
 			}
 			if waitErr := waitRetryBackoff(ctx, attempt); waitErr != nil {
-				return nil, false, fmt.Errorf("request public issues: %w", err)
+				return nil, "", fmt.Errorf("request public issues: %w", err)
 			}
 			continue
 		}
@@ -357,51 +346,26 @@ func (client *GitHubClient) loadIssuePagePublic(ctx context.Context, owner strin
 
 	if resp.StatusCode == http.StatusNotFound {
 		resp.Body.Close()
-		return nil, false, fmt.Errorf("repository not found or private: %s/%s (provide PAT to access private repositories)", owner, repo)
+		return nil, "", fmt.Errorf("repository not found or private: %s/%s (provide PAT to access private repositories)", owner, repo)
 	}
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
-		return nil, false, fmt.Errorf("public api access denied for %s/%s (provide PAT for private repositories or higher rate limits)", owner, repo)
+		return nil, "", fmt.Errorf("public api access denied for %s/%s (provide PAT for private repositories or higher rate limits)", owner, repo)
 	}
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, false, fmt.Errorf("request public issues failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, "", fmt.Errorf("request public issues failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	issues := make([]restIssue, 0)
 	if err := json.NewDecoder(resp.Body).Decode(&issues); err != nil {
 		resp.Body.Close()
-		return nil, false, fmt.Errorf("decode public issues response: %w", err)
+		return nil, "", fmt.Errorf("decode public issues response: %w", err)
 	}
-	hasNext := extractNextLink(resp.Header.Get("Link")) != ""
+	next := extractNextLink(resp.Header.Get("Link"))
 	resp.Body.Close()
-
-	tree := domain.NewIssueTree()
-	for _, issue := range issues {
-		if issue.PullRequest != nil {
-			continue
-		}
-		labels := make([]string, 0, len(issue.Labels))
-		for _, label := range issue.Labels {
-			labels = append(labels, label.Name)
-		}
-		node := &domain.IssueNode{
-			ID:     fmt.Sprintf("public-%d", issue.Number),
-			Number: issue.Number,
-			Title:  issue.Title,
-			Labels: labels,
-			URL:    issue.HTMLURL,
-			State:  issue.State,
-		}
-		tree.AddNode(node)
-	}
-	tree.BuildRoots()
-	sortTree(tree)
-
-	client.pageTrees[page] = tree
-	client.pageHasNext[page] = hasNext
-	return tree, hasNext, nil
+	return issues, next, nil
 }
 
 func extractNextLink(linkHeader string) string {

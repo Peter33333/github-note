@@ -18,8 +18,6 @@ import (
 	"golang.org/x/term"
 )
 
-const defaultPageSize = 100
-
 type options struct {
 	ConfigPath string
 	InitConfig bool
@@ -60,19 +58,16 @@ func Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("authenticate github: %w", err)
 	}
 
-	tree, hasNext, err := client.LoadIssuePage(ctx, cfg.Owner, cfg.Repo, 1, defaultPageSize)
+	tree, totalCount, err := client.LoadIssueTree(ctx, cfg.Owner, cfg.Repo)
 	if err != nil {
 		return fmt.Errorf("load issue tree: %w", err)
 	}
 
-	loadPage := func(page int) (*domain.IssueTree, bool, error) {
-		return client.LoadIssuePage(context.Background(), cfg.Owner, cfg.Repo, page, defaultPageSize)
-	}
-	refreshPage := func(page int) (*domain.IssueTree, bool, error) {
-		return client.RefreshIssuePage(context.Background(), cfg.Owner, cfg.Repo, page, defaultPageSize)
+	reloadTree := func() (*domain.IssueTree, int, error) {
+		return client.LoadIssueTree(context.Background(), cfg.Owner, cfg.Repo)
 	}
 
-	model := tui.New(tree, open.URL, 1, hasNext, loadPage, refreshPage)
+	model := tui.New(tree, open.URL, totalCount, reloadTree)
 	if err := tui.Run(model); err != nil {
 		return fmt.Errorf("run tui: %w", err)
 	}

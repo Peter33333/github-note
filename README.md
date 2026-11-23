@@ -14,7 +14,7 @@ This tool exists to present issue hierarchy in a clear tree view, so note struct
 
 - Optional Personal Access Token login (`Enter` to skip for public repositories)
 - Support `GH_TOKEN` environment variable
-- Lazy loading by page (first page only on startup)
+- Full issue tree loading at startup (all pages merged, parent/sub links resolved across pages)
 - Load issue tree from a single repository
 - TUI list view with tree indentation
 - Open selected issue in system browser
@@ -88,9 +88,9 @@ ghnote --config ./configs/config.yaml
 
 - First login: paste a GitHub Personal Access Token when prompted, or press `Enter` for public-only mode.
 - Navigation: use `j`/`k` (or arrow keys) to move the cursor.
-- Page navigation: use `[`/`]` (or `p`/`n`) for previous/next issue page.
 - Fast list navigation: use `g`/`G` for first/last item, and `pgup`/`pgdown` for list scroll.
-- Tree control: use `h`/`left` to collapse, `l`/`right` to expand, `space` to toggle.
+- Tree control: use `h`/`left` to collapse, `l`/`right` to expand, `space` to toggle. The tree starts fully collapsed and parent nodes show `▸[n]` with the child count.
+- Reload: press `r` to fetch all issues again, so newly created issues show up.
 - Open issue: press `enter` to open the selected issue in your browser.
 - Help: press `?` to toggle extended help.
 - Fast retry: when auth or repo config changes, rerun `ghnote` directly.
@@ -101,13 +101,12 @@ ghnote --config ./configs/config.yaml
 - `k` / `up`: move cursor up
 - `g` / `home`: jump to first item
 - `G` / `end`: jump to last item
-- `[`, `p`: load previous issue page
-- `]`, `n`: load next issue page
 - `pgup`: scroll one screen up
 - `pgdown`: scroll one screen down
 - `h` / `left`: collapse current node
 - `l` / `right`: expand current node
 - `space`: toggle collapse/expand
+- `r`: reload all issues from GitHub
 - `enter`: open selected issue URL
 - `?`: toggle extended help
 - `q`: quit
@@ -128,6 +127,7 @@ configs/                # example config
 ## Notes
 
 - The app currently targets Linux (`xdg-open` for URL launch).
+- All issues (open and closed) are loaded at startup; issue pages are merged into one tree.
 - PAT is optional: without PAT, only public repositories are accessible.
 - For private repositories, use a GitHub Personal Access Token with `repo` scope.
 - Token is stored at `~/.config/ghnote/token.yaml`.

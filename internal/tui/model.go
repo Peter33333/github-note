@@ -25,22 +25,20 @@ type flatNode struct {
 }
 
 type Model struct {
-	tree        *domain.IssueTree
-	flat        []flatNode
-	cursor      int
-	offset      int
-	page        int
-	hasNext     bool
-	width       int
-	height      int
-	quitting    bool
-	err         error
-	status      string
-	showHelp    bool
-	collapsed   map[string]bool
-	openIssue   func(url string) error
-	loadPage    func(page int) (*domain.IssueTree, bool, error)
-	refreshPage func(page int) (*domain.IssueTree, bool, error)
+	tree       *domain.IssueTree
+	flat       []flatNode
+	cursor     int
+	offset     int
+	totalCount int
+	width      int
+	height     int
+	quitting   bool
+	err        error
+	status     string
+	showHelp   bool
+	collapsed  map[string]bool
+	openIssue  func(url string) error
+	loadTree   func() (*domain.IssueTree, int, error)
 
 	root        lipgloss.Style
 	headerBar   lipgloss.Style
@@ -66,16 +64,14 @@ type Model struct {
 	footerErr  lipgloss.Style
 }
 
-func New(tree *domain.IssueTree, openIssue func(url string) error, page int, hasNext bool, loadPage func(page int) (*domain.IssueTree, bool, error), refreshPage func(page int) (*domain.IssueTree, bool, error)) *Model {
+func New(tree *domain.IssueTree, openIssue func(url string) error, totalCount int, loadTree func() (*domain.IssueTree, int, error)) *Model {
 	model := &Model{
-		tree:        tree,
-		openIssue:   openIssue,
-		collapsed:   make(map[string]bool),
-		page:        max(1, page),
-		hasNext:     hasNext,
-		loadPage:    loadPage,
-		refreshPage: refreshPage,
-		status:      "Ready",
+		tree:       tree,
+		openIssue:  openIssue,
+		collapsed:  make(map[string]bool),
+		totalCount: totalCount,
+		loadTree:   loadTree,
+		status:     loadStatus(tree, totalCount),
 		root: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#4A5158")).
@@ -195,10 +191,6 @@ func (model *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			model.cursor = clamp(model.cursor+step, 0, max(0, len(model.flat)-1))
 			model.ensureCursorVisible()
 			model.status = model.selectionStatus()
-		case "]", "n":
-			model.goNextPage()
-		case "[", "p":
-			model.goPrevPage()
 		case "left", "h":
 			model.collapseCurrent()
 		case "right", "l":
@@ -213,7 +205,7 @@ func (model *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model.status = "Help collapsed"
 			}
 		case "r":
-			model.refreshCurrentPage()
+			model.reloadTree()
 		case "enter":
 			if len(model.flat) == 0 || model.openIssue == nil {
 				model.status = "No issue to open"
@@ -265,7 +257,7 @@ func (model *Model) renderHeader(width int) string {
 		styled := model.headerTitle.Render(truncateToWidth(line, innerWidth))
 		rows = append(rows, model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(styled))
 	}
-	meta := model.headerMeta.Render(fmt.Sprintf("page:%d  items:%d  selected:%d/%d", model.page, len(model.flat), model.cursor+1, max(1, len(model.flat))))
+	meta := model.headerMeta.Render(fmt.Sprintf("issues:%d  total:%d  selected:%d/%d", len(model.flat), model.totalCount, model.cursor+1, max(1, len(model.flat))))
 	rows = append(rows, model.headerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(meta, innerWidth)))
 	return strings.Join(rows, "\n")
 }
@@ -387,13 +379,13 @@ func (model *Model) renderFooterLines(width int) []string {
 		statusLine = model.footerErr.Render("Error: " + model.err.Error())
 	}
 
-	hintLine := model.footerHint.Render("j/k:move  h/l:fold  space:toggle  r:refresh  [/]:prev/next page  enter:open  g/G:top/bottom  pgup/pgdown:scroll  ?:help  q:quit")
+	hintLine := model.footerHint.Render("j/k:move  h/l:fold  space:toggle  r:reload all  enter:open  g/G:top/bottom  pgup/pgdown:scroll  ?:help  q:quit")
 	lines := []string{
 		model.footerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(statusLine, innerWidth)),
 		model.footerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(hintLine, innerWidth)),
 	}
 	if model.showHelp {
-		extra := model.footerHint.Render("Tip: parent nodes show ▸/▾. Press r to reload current page from GitHub. Right panel shows issue metadata.")
+		extra := model.footerHint.Render("Tip: parent nodes show ▸[n]/▾[n]. Press r to reload all issues from GitHub. Right panel shows issue metadata.")
 		lines = append(lines, model.footerBar.Width(innerWidth).MaxWidth(innerWidth).Render(truncateToWidth(extra, innerWidth)))
 	}
 	return lines
@@ -401,101 +393,59 @@ func (model *Model) renderFooterLines(width int) []string {
 
 func (model *Model) selectionStatus() string {
 	if len(model.flat) == 0 {
-		if model.hasNext {
-			return fmt.Sprintf("Page %d: No issues in current page (has next)", model.page)
-		}
-		return fmt.Sprintf("Page %d: No issues", model.page)
+		return fmt.Sprintf("No issues loaded (total %d)", model.totalCount)
 	}
 	node := model.flat[model.cursor].Node
-	return fmt.Sprintf("Page %d  Selected #%d (%d/%d)", model.page, node.Number, model.cursor+1, len(model.flat))
+	return fmt.Sprintf("Selected #%d (%d/%d)  total %d", node.Number, model.cursor+1, len(model.flat), model.totalCount)
 }
 
-func (model *Model) goNextPage() {
-	if !model.hasNext {
-		model.status = fmt.Sprintf("Already at last page (%d)", model.page)
-		return
-	}
-	if model.loadPage == nil {
-		model.status = "Page loader is not available"
-		return
-	}
-	target := model.page + 1
-	tree, hasNext, err := model.loadPage(target)
-	if err != nil {
-		model.err = err
-		model.status = fmt.Sprintf("Load page %d failed", target)
-		return
-	}
-	model.applyPage(target, hasNext, tree)
-	model.status = fmt.Sprintf("Loaded page %d", target)
-	model.err = nil
-}
-
-func (model *Model) goPrevPage() {
-	if model.page <= 1 {
-		model.status = "Already at first page"
-		return
-	}
-	if model.loadPage == nil {
-		model.status = "Page loader is not available"
-		return
-	}
-	target := model.page - 1
-	tree, hasNext, err := model.loadPage(target)
-	if err != nil {
-		model.err = err
-		model.status = fmt.Sprintf("Load page %d failed", target)
-		return
-	}
-	model.applyPage(target, hasNext, tree)
-	model.status = fmt.Sprintf("Loaded page %d", target)
-	model.err = nil
-}
-
-func (model *Model) refreshCurrentPage() {
-	if model.refreshPage == nil {
-		model.status = "Refresh is not available"
+func (model *Model) reloadTree() {
+	if model.loadTree == nil {
+		model.status = "Reload is not available"
 		return
 	}
 
-	target := max(1, model.page)
 	selectedID := ""
 	if model.cursor >= 0 && model.cursor < len(model.flat) {
 		selectedID = model.flat[model.cursor].Node.ID
 	}
-	collapsed := cloneCollapsedMap(model.collapsed)
+	previousTree := model.tree
+	previousCollapsed := cloneCollapsedMap(model.collapsed)
 
-	tree, hasNext, err := model.refreshPage(target)
+	tree, totalCount, err := model.loadTree()
 	if err != nil {
 		model.err = err
-		model.status = fmt.Sprintf("Refresh page %d failed", target)
+		model.status = "Reload failed"
 		return
 	}
 
-	model.page = target
-	model.hasNext = hasNext
 	model.tree = tree
+	model.totalCount = totalCount
 	model.offset = 0
 	model.collapsed = make(map[string]bool)
 	initCollapsedState(model.tree, model.collapsed)
-	mergeCollapsedState(model.tree, model.collapsed, collapsed)
+	restoreCollapsedState(previousTree, previousCollapsed, model.tree, model.collapsed)
 	model.rebuildFlat()
 	if selectedID != "" {
 		model.restoreSelectionByID(selectedID)
 	}
+
 	model.err = nil
-	model.status = fmt.Sprintf("Refreshed page %d", target)
+	model.status = loadStatus(model.tree, model.totalCount)
+	if loaded := loadedCount(model.tree); totalCount > 0 && loaded != totalCount {
+		model.err = fmt.Errorf("loaded %d issues but GitHub reports %d", loaded, totalCount)
+	}
 }
 
-func (model *Model) applyPage(page int, hasNext bool, tree *domain.IssueTree) {
-	model.page = max(1, page)
-	model.hasNext = hasNext
-	model.tree = tree
-	model.cursor = 0
-	model.offset = 0
-	model.collapsed = make(map[string]bool)
-	initCollapsedState(model.tree, model.collapsed)
-	model.rebuildFlat()
+func loadedCount(tree *domain.IssueTree) int {
+	if tree == nil {
+		return 0
+	}
+	return len(tree.Nodes)
+}
+
+func loadStatus(tree *domain.IssueTree, totalCount int) string {
+	return fmt.Sprintf("Loaded %d/%d issues", loadedCount(tree), totalCount)
 }
 
 func (model *Model) collapseCurrent() {
@@ -589,11 +539,29 @@ func cloneCollapsedMap(source map[string]bool) map[string]bool {
 	return cloned
 }
 
-func mergeCollapsedState(tree *domain.IssueTree, target map[string]bool, source map[string]bool) {
-	for _, item := range flattenTree(tree, map[string]bool{}) {
-		if source[item.Node.ID] {
-			target[item.Node.ID] = true
+// initCollapsedState folds every node that has children, so the tree starts collapsed.
+func initCollapsedState(tree *domain.IssueTree, collapsed map[string]bool) {
+	if tree == nil {
+		return
+	}
+	for _, node := range tree.Nodes {
+		if len(node.Children) > 0 {
+			collapsed[node.ID] = true
 		}
+	}
+}
+
+// restoreCollapsedState keeps the fold choice of the user for issues that already existed
+// before a reload. Nodes that appear for the first time stay collapsed.
+func restoreCollapsedState(previousTree *domain.IssueTree, previous map[string]bool, current *domain.IssueTree, target map[string]bool) {
+	if previousTree == nil || current == nil {
+		return
+	}
+	for id := range current.Nodes {
+		if _, existed := previousTree.Nodes[id]; !existed {
+			continue
+		}
+		target[id] = previous[id]
 	}
 }
 
@@ -606,17 +574,6 @@ func flattenTree(tree *domain.IssueTree, collapsed map[string]bool) []flatNode {
 		walkNode(root, 0, collapsed, &result)
 	}
 	return result
-}
-
-func initCollapsedState(tree *domain.IssueTree, collapsed map[string]bool) {
-	if tree == nil {
-		return
-	}
-	for _, node := range tree.Nodes {
-		if len(node.Children) > 0 {
-			collapsed[node.ID] = true
-		}
-	}
 }
 
 func walkNode(node *domain.IssueNode, depth int, collapsed map[string]bool, out *[]flatNode) {
@@ -633,10 +590,11 @@ func walkNode(node *domain.IssueNode, depth int, collapsed map[string]bool, out 
 func (model *Model) formatIssueLine(item flatNode) string {
 	marker := "•"
 	if item.HasKid {
+		childCount := fmt.Sprintf("[%d]", len(item.Node.Children))
 		if item.IsCollapsed {
-			marker = "▸"
+			marker = "▸" + childCount
 		} else {
-			marker = "▾"
+			marker = "▾" + childCount
 		}
 	}
 	indent := strings.Repeat("  ", item.Depth)
